@@ -1,0 +1,497 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Load all libraries required
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(knitr)
+library(stringr)
+```
+
+Read all the happiness index csv files and read them into a list of dataframes
+```{r}
+mydir = "input"
+myfiles_links = list.files(path=mydir, pattern="*.csv", full.names=TRUE)
+myfiles <- lapply(myfiles_links, read_delim)
+```
+
+Each dataframe has a different set of columns (all are almost the same but with 
+slight variation in names of columns). Doing a small tidying job to standardize 
+all the column names
+```{r}
+for (i in 1:5){
+  myfiles[[i]]$Year = str_remove(str_remove(myfiles_links[[i]], "input/"), ".csv")
+  if ("Happiness Rank" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Overall.rank` = `Happiness Rank`)
+  }
+  if ("Happiness.Rank" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Overall.rank` = `Happiness.Rank`)
+  }
+  if ("Overall rank" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Overall.rank` = `Overall rank`)
+  }
+  if ("Country or region" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Country = `Country or region`)
+  }
+  if ("Perceptions of corruption" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]]$`Perceptions of corruption` = 
+      as.double(myfiles[[i]]$`Perceptions of corruption`)
+  }
+  if ("GDP per capita" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Economy (GDP per Capita)` = `GDP per capita`)
+  }
+  if ("Economy..GDP.per.Capita." %in% colnames(myfiles[[i]]))
+  {
+    print(i)
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Economy (GDP per Capita)` = `Economy..GDP.per.Capita.`)
+  }
+  if ("Trust..Government.Corruption." %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Trust (Government Corruption)` = `Trust..Government.Corruption.`)
+  }
+  if ("Freedom to make life choices" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Freedom = `Freedom to make life choices`)
+  }
+  if ("Happiness Score" %in% colnames(myfiles[[i]]))
+  {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Happiness.Score = `Happiness Score`)
+  }
+  if ("Score" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Happiness.Score = Score)
+  }
+  if ("Upper Confidence Interval" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Whisker.high = `Upper Confidence Interval`)
+  }
+  if ("Lower Confidence Interval" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(Whisker.low = `Lower Confidence Interval`)
+  }
+  if ("Healthy life expectancy" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Health (Life Expectancy)` = `Healthy life expectancy`)
+  }
+  if ("Health..Life.Expectancy." %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Health (Life Expectancy)` = `Health..Life.Expectancy.`)
+  }
+  if ("Dystopia Residual" %in% colnames(myfiles[[i]])) {
+    myfiles[[i]] <- myfiles[[i]] %>%
+      rename(`Dystopia.Residual` = `Dystopia Residual`)
+  }
+}
+dat_csv <- dplyr::bind_rows(myfiles)
+
+```
+The files in the latter years had the region and country combined together in 
+one column (although the value was the country name), hence filling up the 
+Region with the Region value of the same country from previous years. 
+```{r}
+dat_csv <- dat_csv %>% 
+  group_by(Country) %>% 
+  fill(Region) %>% #default direction down
+  fill(Region, .direction = "up")
+```
+
+
+Imputing NA values with the average values and cleaning up the data to make sure 
+that all NA values are imputed
+```{r}
+dataset <- dat_csv %>% 
+  group_by(Country) %>% 
+  mutate(`Social support`= ifelse(is.na(`Social support`),
+                                  mean(`Social support`,na.rm = T),
+                                  `Social support`)) %>%
+  mutate(`Perceptions of corruption` = ifelse(is.na(`Perceptions of corruption`),
+                                              mean(`Perceptions of corruption`, 
+                                                   na.rm = T), 
+                                              `Perceptions of corruption`)) %>%
+  mutate(`Whisker.low` = `Happiness.Score`) %>%
+  mutate(`Whisker.high` = `Happiness.Score`) %>%
+  mutate(`Trust (Government Corruption)` = 
+           ifelse(is.na(`Trust (Government Corruption)`), 
+                  median(`Trust (Government Corruption)`, na.rm = T), 
+                  `Trust (Government Corruption)`)) %>%
+  mutate(`Dystopia.Residual` = ifelse(is.na(`Dystopia.Residual`), 
+                                      median(`Dystopia.Residual`, na.rm = T), 
+                                      `Dystopia.Residual`)) %>%
+  mutate(`Standard Error`= ifelse(is.na(`Standard Error`), 0, 
+                                  `Standard Error`)) %>%
+  mutate(`Family` = ifelse(is.na(`Family`), 
+                           median(`Family`, na.rm = T), `Family`)) %>%
+  mutate(Region = ifelse(is.na(Region), "", Region))
+  
+dataset[is.na(dataset)] <- 0
+```
+
+```{r}
+colnames(dataset)
+```
+
+```{r}
+subset(dataset, select = c("Trust (Government Corruption)", "Perceptions of corruption", "Year", "Country"))
+```
+
+
+```{r}
+subset(dataset, select = c("Family", "Social support", "Year", "Country"))
+```
+
+Distribution of Happiness Scores for each region
+```{r}
+dataset %>%
+  filter(Region != "") %>%
+  ggplot(aes(x=as.factor(Region), y=Happiness.Score, color=Year)) +
+  geom_boxplot() + 
+  coord_flip() +
+  labs(title="Distribution of Happiness Scores per Region", x="Region", 
+       y="Happiness Score")
+```
+From the above visualization, we can see that counties in Western Europe and 
+Australia-New Zealand, and North America have consistently high happiness 
+scores. Similarly, countries in Africa, Southern Asia have lower happiness 
+scores. This ties into the logical assumption that countries that are 
+more developed have higher happiness scores. Middle East and Northern Africa
+have countries that range between both ends of the happiness score spectrum 
+which makes sense since some countries in the middle east (Dubai) are very 
+developed. 
+
+```{r}
+top10countries2015 = dataset %>% 
+  filter(Year == 2015) %>%
+  filter(Overall.rank <= 10) %>%
+  select(Country)
+
+dataset %>%
+  filter(Country %in% as.list(top10countries2015$Country)) %>%
+  ggplot( aes(x=as.factor(Year), y=Overall.rank, color=as.factor(Country))) +
+    geom_line(aes(color=Country, group=Country)) +
+  geom_point() +
+  labs(title="Top 10 countries with the highest happiness ranks over the years",
+       x="Year", y="Rank")
+
+
+```
+The top 10 countries with the highest happiness scores in 2016 are taken in this
+visualization to see the progression of ranks over the next 5 years. One thing, 
+that we can clearly see is that there is a lot of shuffling between the ranks
+of the top 10 countries but it is not very likely that they leave the top 10 
+spots. (Only one country that was in the top 10 in 2015 went out of the top 10: 
+in 2019, Australia was ranked 11). Clearly the top 10 countries are consistent
+leading to happy citizens. 
+
+```{r}
+bottom10countries2015 <- dataset %>% 
+  filter(Year == 2015) %>%
+  arrange(Overall.rank) %>%
+  tail(10) %>%
+  select(Country)
+
+dataset %>%
+  filter(Country %in% as.list(bottom10countries2015$Country)) %>%
+  ggplot( aes(x=as.factor(Year), y=Overall.rank, color=as.factor(Country))) +
+    geom_line(aes(color=Country, group=Country)) +
+  geom_point() +
+  labs(title="10 Countries with the least happiness 
+       ranks in 2015 over the years", x="Year", y="Rank")
+
+```
+The top 10 countries with the least happiness scores in 2016 are taken in this
+visualization to see the progression of ranks over the next 5 years. This is 
+very rewarding to see that all of the 10 countries increased their ranks over
+the next years; some countries even jumped over 50 spots: Ivory Coast. This 
+could be due to drastic changes in policy, etc.
+
+
+```{r}
+dataset %>%
+  ggplot(aes(x=Happiness.Score, y=`Economy (GDP per Capita)`)) +
+  geom_point() + 
+  geom_smooth() +
+  facet_wrap(.~Year) + 
+  labs(title="Happiness Score vs Economy", x="Happiness Score", y="Economy")
+```
+We can see that there is a positive linear relationship between the Economy and
+the Happiness Score for a country over each year. 
+
+```{r}
+dataset %>%
+  ggplot(aes(x=Happiness.Score, y=Family)) +
+  geom_point() + 
+  geom_smooth() +
+  facet_wrap(.~Year) +
+  labs(title="Happiness Score vs Family", x="Happiness Score", y="Family")
+```
+We can see that there is a positive linear relationship between the Family and
+the Happiness Score for a country over each year. 
+
+```{r}
+dataset %>%
+  ggplot(aes(x=Happiness.Score, y=`Health (Life Expectancy)`)) + 
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(.~Year) + 
+  labs(title="Happiness Score vs Life Expectancy", x="Happiness Score", y="
+       Life Expectancy")
+```
+We can see that there is a positive linear relationship between the 
+Life Expectancy and the Happiness Score for a country over each year. 
+
+```{r}
+dataset %>%
+  ggplot(aes(x=Happiness.Score, y=Freedom)) + 
+  geom_point() +
+  geom_smooth() + 
+  facet_wrap(.~Year) +
+  labs(title="Happiness Score vs Freedom", x="Happiness Score", y="Freedom") 
+  
+```
+We can see that there is a positive almost-linear relationship between the 
+Life Expectancy and the Happiness Score for a country over each year. In some
+years (2015, 2018) the relationship is slightly curved. 
+
+
+```{r}
+dataset %>%
+  ggplot(aes(x=log2(Happiness.Score), y=Generosity)) + 
+  geom_point() +
+  geom_smooth() + 
+  facet_wrap(.~Year) +
+  labs(title="Happiness Score vs Generosity", x="Happiness Score", 
+       y="Generosity") 
+```
+We can see that there is no linear relationship between Generosity 
+and the Happiness Score for a country over each year. 
+
+```{r}
+dataset %>%
+  ggplot(aes(x=Happiness.Score, y=`Trust (Government Corruption)`)) + 
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(.~Year) + 
+  labs(title="Happiness Score vs Trust (Government Corruption)", 
+       x="Happiness Score")
+```
+We can see that there is a relationship between the 
+Trust in Governement over the years. However, the relationship is not 
+linear.
+
+
+```{r}
+glimpse(dataset)
+```
+
+```{r}
+dataset %>%
+  select(Country, Happiness.Score) %>%
+  group_by(Country) %>%
+  summarise(Avg_Happiness=mean(Happiness.Score, na.rm=TRUE)) %>%
+  arrange(desc(Avg_Happiness)) %>%
+  slice_head(n = 25) %>%
+  ggplot(aes(reorder(Country, Avg_Happiness), Avg_Happiness)) +
+  geom_point(color = "lightblue") +
+  theme_bw() + 
+  coord_flip() +
+  labs(title = "Top 25 Happiest Countries based on Average Score for 2015-2019", 
+       x = "Country", y = "Happiness Score")
+```
+What we have here is a list of the top 25 countries based on the average 
+happiness score over the years 2015-2019. Denmark is the happiest country 
+with Norway a closed second and Finland third.
+
+
+```{r}
+world <- map_data("world")
+whr <- dataset %>%
+  select(Country, Happiness.Score) %>%
+  group_by(Country) %>%
+  summarise(Score=mean(Happiness.Score, na.rm=TRUE)) %>%
+  mutate(country = str_trim(Country)) %>% 
+  mutate(country = case_when(country == 'United States' ~ 'USA',
+                                country == 'United Kingdom' ~ 'UK',
+                                TRUE ~ country))
+setdiff(whr$country, world$region)
+map <- left_join(world, whr, by = c('region' = 'country'))
+ggplot(data = map, mapping = aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = Score))  +
+  scale_fill_continuous(low="thistle2", high="darkred", na.value="snow2") +
+  coord_quickmap() +
+  labs(title = "Happiness Around the World") +
+  theme_void()
+```
+
+This is a choropleth of the world showing the average Happiness Score for each
+region. As theorized before, North America, Western Europe and Australia seem
+to have high Happiness Scores and some countries in Asia, Africa are on the lower
+end of the range. 
+
+```{r}
+dataset %>% ggplot(aes(x=Happiness.Score, y =`Social support`)) + 
+  geom_point() + facet_wrap(~as.factor(Year)) + geom_smooth(lm = loess) + labs(title = "Social Support vs Happiness")
+
+```
+The relationship between social support and happiness shows an increasing linear 
+curve which has straightened over the years.
+
+```{r}
+dataset %>% ggplot(aes(x=Happiness.Score, y =`Perceptions of corruption`)) + 
+  geom_point() + facet_wrap(~as.factor(Year)) + geom_smooth(lm = loess) + labs(title = "Perception of corruption vs Happiness")
+
+```
+The graph for Happiness vs Perception of Corruption shows an interesting curve 
+which has a rounded bottom over the median and has a slightly increasing 
+relationship for higher values of Happiness.
+
+The next series of plots are  very interesting correlation matrices between a select 
+number of attributes plotted using a heat-map over the years. We can see that 
+the the correlation remains the same over the years. There is a high
+negative correlation between Happiness Score and Rank (ie) larger your happiness
+score, the more smaller your rank (which makes it higher). We can also see that
+there is no correlation between generosity and the score which was what we had
+previously hypoethesized using the graphs. What's interesting is that Freedom to 
+make Life Choices does not have a huge correlation with the Happiness Score
+especially compared to other factors such as GDP, etc. 
+
+```{r}
+if (!require("corrplot")) install.packages("corrplot")
+library(corrplot)
+whr2019 <- dataset %>%
+  filter(Year == 2019) %>%
+  select(Overall.rank, Happiness.Score, `Economy (GDP per Capita)`, 
+         `Health (Life Expectancy)`, Freedom, `Social support`, 
+         `Perceptions of corruption`)
+temp <-sapply(whr2019, is.numeric)
+cor_data <- cor(whr2019[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+
+```{r}
+whr2018 <- dataset %>%
+  filter(Year == 2018) %>%
+  select(Overall.rank, Happiness.Score, `Economy (GDP per Capita)`, 
+         `Health (Life Expectancy)`, Freedom, `Social support`, 
+         `Perceptions of corruption`)
+temp <-sapply(whr2018, is.numeric)
+cor_data <- cor(whr2018[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+```{r}
+whr2017 <- dataset %>%
+  filter(Year == 2017) %>%
+  select(Overall.rank, Happiness.Score, `Economy (GDP per Capita)`, 
+         `Health (Life Expectancy)`, Freedom, `Family`, 
+         `Trust (Government Corruption)`)
+temp <-sapply(whr2017, is.numeric)
+cor_data <- cor(whr2017[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+
+```{r}
+whr2016 <- dataset %>%
+  filter(Year == 2016) %>%
+  select(Overall.rank, Happiness.Score, `Economy (GDP per Capita)`, 
+         `Health (Life Expectancy)`, Freedom, `Family`, 
+         `Trust (Government Corruption)`)
+temp <-sapply(whr2016, is.numeric)
+cor_data <- cor(whr2016[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+
+
+```{r}
+whr2015 <- dataset %>%
+  filter(Year == 2015) %>%
+  select(Overall.rank, Happiness.Score, `Economy (GDP per Capita)`, 
+         `Health (Life Expectancy)`, Freedom, `Family`, 
+         `Trust (Government Corruption)`)
+temp <-sapply(whr2015, is.numeric)
+cor_data <- cor(whr2015[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+
+Adding Gapminder dataset to the present dataset to see if there are any 
+additional statistical relationships
+
+```{r}
+whrgm <- read_csv('happiness_with_gapminder.csv')
+glimpse(whrgm)
+
+library(gapminder)
+glimpse(gapminder)
+```
+
+
+```{r}
+whrgm <- whrgm %>%
+  rename(`Employment Rate Percent` = aged_15plus_employment_rate_percent,
+         `Labour Force Participation` = aged_15plus_labour_force_participation_rate_percent,
+         `Child Mortality per 1000` = child_mortality_0_5_year_olds_dying_per_1000_born,
+         `Suicides per 100000` = suicide_per_100000_people,
+         `Cell Phones per 100` = cell_phones_per_100_people)
+temp <-sapply(whrgm, is.numeric)
+cor_data <- cor(whrgm[,temp])
+corrplot(cor_data, method="square", type='full', tl.cex=0.8, tl.col = 'black')
+```
+Checking the correlation matrix with the added gapminder attributes, we can 
+first see that there is a good negative correlation between Child mortality
+and Happiness Score; the lower the child mortality rate, the higher the happiness
+score. What is interesting is that the number of suicides does not have much 
+correlation with the happiness score (in fact it is almost positive) which does 
+not make sense. The employment rate percent and the labour force participation 
+have complete positive correlation with eachother and hence for all intents and
+purposes of statistical inference can be taken as one attribute. Another thing 
+that is interesting is that Economy has a very high negative correlation with 
+Child Mortality. The lower the economy the higher the child mortality. 
+
+```{r}
+whrgm %>% ggplot(aes(x=`Happiness Score`, y =`Employment Rate Percent`)) + 
+  geom_point() + facet_wrap(~as.factor(Year)) + geom_smooth(lm = loess) + labs(title = "Employement Rate vs Happiness")
+```
+The relationships between Employment rate and Happiness Score changes over the 
+years (2, to be exact). In the first year, it has a weak positive linear 
+relationship with Happiness Score. However, in the second year, it is almost a
+sine wave where at one point the happiness score is high for a lower employment
+rate. This could mean that people don't consider employment to be the sole factor
+in gauging their happiness.
+
+```{r}
+whrgm %>% ggplot(aes(x=`Happiness Score`, y =`Labour Force Participation`)) + 
+  geom_point() + facet_wrap(~as.factor(Year)) + geom_smooth(lm = loess) + labs(title = "Labour Force Participation vs Happiness")
+```
+As mentioned before, Labour Force and Employment rate have a very strong positive
+correlation and we can see that being reflected in their relationships with
+the Happiness Score. Similar to the previous visualization, there is a weak 
+positive linear relationship in 2015 but in 2016, it is not linear. 
+
+```{r}
+whrgm %>% ggplot(aes(x=`Happiness Score`, y =`Suicides per 100000`)) + 
+  geom_point() + facet_wrap(~as.factor(Year)) + geom_smooth(lm = loess) + 
+  labs(title = "Suicide Rate vs Happiness")
+```
+Suicide Rate and Happiness Score do not have a linear relationship. We can see 
+that in 2015, it starts off slightly linear and then curves and in 2016, there is 
+no linearity in the relationship. This is interesting since suicides
+are linked with sadness and depression but however does not play a part in 
+actually computing the happiness score.
