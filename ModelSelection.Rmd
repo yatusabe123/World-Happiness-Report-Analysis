@@ -1,0 +1,70 @@
+---
+title: "Project Linear Model"
+author: "Yuhang Diao & Rui Yu"
+date: "12/11/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Models
+
+## Linear Model
+
+```{r}
+library(readr)
+```
+
+
+```{r message=FALSE}
+df <- read_csv("happiness_with_gapminder.csv")
+head(df)
+```
+
+```{r}
+df$`Trust (Government Corruption)` <- as.double(df$`Trust (Government Corruption)`)
+head(df)
+```
+
+```{r}
+# Build a naive model
+fit1 <- lm(`Happiness Score`~ `Economy (GDP per Capita)`+ Family + `Health (Life Expectancy)`+Freedom+ `Trust (Government Corruption)`+Generosity+aged_15plus_employment_rate_percent+aged_15plus_labour_force_participation_rate_percent+cell_phones_per_100_people+child_mortality_0_5_year_olds_dying_per_1000_born+suicide_per_100000_people, df)
+summary(fit1)
+```
+
+Based on the results of the naive model, the overall model is significant with a p-value of 2.906e-11. Also, the r-squared is 0.8124, which means that 82.24% of variance explained by this model. The adjusted R-squared is 0.7609 indicating that after penalizing for number of parameters, 76.09% of variance is explained by this model. 
+
+
+```{r}
+# stepwise selection
+step(fit1, test = "F")
+```
+
+After doing the stepwise selection, the model with the lowest AIC value includes variables `Economy (GDP per Capita)`, Family, `Trust (Government Corruption)`, Generosity, aged_15plus_employment_rate_percent, aged_15plus_labour_force_participation_rate_percent, and child_mortality_0_5_year_olds_dying_per_1000_born.
+
+```{r}
+# Model after stepwise selection
+fit_step <- lm(data = df, `Happiness Score` ~ `Economy (GDP per Capita)` + 
+    Family + `Trust (Government Corruption)` + Generosity + aged_15plus_employment_rate_percent + 
+    aged_15plus_labour_force_participation_rate_percent + child_mortality_0_5_year_olds_dying_per_1000_born)
+
+summary(fit_step)
+```
+
+After doing variable selection on the naive model, the new model is significant with a p-value of 1.81e-13. Also, the r-squared is 0.8011, which means that 80.11% of variance is explained by this model. The adjusted R-squared is 0.7695 indicating that after penalizing for number of parameters, 76.95% of variance is  explained by this model. 
+
+```{r}
+# Model diagnostics
+hist(fit_step$residuals)
+
+# residual plot
+plot(fit_step)
+
+# check fitted values
+hist(fit_step$fitted.values)
+
+```
+
+After doing the model diagnostics, we plot the residuals and find the true error to be randomly distributed. There is no systematic pattern here, so this does not violate the model assumptions. Also, after plotting the QQ-plot, we find that the residuals are approximately normal.
